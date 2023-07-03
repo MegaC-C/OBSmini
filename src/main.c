@@ -1,9 +1,12 @@
 // This code is written for the OBSmini with the aim to visualize the recieved echo signals as measured by the nRF52833.
-// The results can be used to tune limits/timings etc. Current: 5mA when connected and sampling, 8µA when off (deep sleeping waiting for NFC)
+// The results can be used to tune limits/timings etc. 
+// 38.5mA (36mA from ultrasonic bursts + 2.5mA from CPU, BLE, OpAmps etc.) when connected and sampling with 15+1 pulses every 20ms
+// 8µA when off (deep sleeping waiting for NFC)
 //
 // Most code comes from official examples:
 // NFC/Powermanagement: nrf/samples/nfc/system_off
 // SAADC/PPI: https://github.com/NordicPlayground/nRF52-ADC-examples/tree/master/nrfx_saadc_multi_channel_ppi
+
 // BLE: webinar: Developing Bluetooth Low Energy products using nRF Connect SDK
 // PWM: nRF5_SDKv17.0.2/examples/peripheral/pwm_driver
 // DFU_OTA: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/working_with_nrf/nrf52/developing.html#fota-updates
@@ -97,9 +100,11 @@ void error_handling();
 #define ECHO_RECEIVE_LIMIT_HIGH 1000
 #define INITIAL_PULSE_LIMIT_LOW 500
 #define MAX_MEASUREMENTS        101
+#define SAADC_EVENT_BIT         BIT(0)
 
 // pre kernel initialization ------------------------------------------------------------------------------------------------------------------------
 LOG_MODULE_REGISTER(logging, LOG_LEVEL_DBG);
+K_EVENT_DEFINE(saadc_done);
 int nrfx_err = NRFX_SUCCESS;
 int err      = 0;
 
@@ -326,7 +331,7 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
     {
     case NRFX_SAADC_EVT_LIMIT:
         // here we activate the ECHO_RECEIVE_LIMIT_HIGH only after the signal from the initial ultrasonic pulse (INITIAL_PULSE_LIMIT_LOW) has subsided,
-        // after we received an echo we deactivate ECHO_RECEIVE_LIMIT_HIGH to detect only the first echoed signal 
+        // after we received an echo we deactivate ECHO_RECEIVE_LIMIT_HIGH to detect only the first echoed signal
         if (p_event->data.limit.channel == LEFT_SENSOR)
         {
             if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
@@ -360,6 +365,7 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
         nrfx_timer_disable(&timer_to_measure_ultrasonic_response_instance);
         nrfx_timer_disable(&timer_to_sample_saadc_via_ppi_instance); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
         is_SAADC_done = true;                                        // perhaps because one dimensional buffer was used instead of double buffer?
+        k_event_set(&saadc_done, SAADC_EVENT_BIT);
         break;
     case NRFX_SAADC_EVT_BUF_REQ:
         nrfx_err = nrfx_saadc_buffer_set(&saadc_samples[0], SAADC_BUF_SIZE);
@@ -614,6 +620,7 @@ void error_handling()
 
 void main(void)
 {
+    uint32_t events;
     uint8_t system_off_counter = TIME_TO_SYSTEM_OFF_S;
 
     LOG_INF("Hello World! %s\n", CONFIG_BOARD);
@@ -649,8 +656,14 @@ void main(void)
     {
         while (ble_notif_enabled)
         {
-            if (is_SAADC_done)
+            events = k_event_wait(&saadc_done, SAADC_EVENT_BIT, false, K_MSEC(5000)); // this approach consumes 2.5mA vs 5mA when activly polling (without US-Trafos)
+            if (events == 0)
             {
+                LOG_ERR("no SAADC converion done!");
+            }
+            else
+            {
+                k_event_clear(&saadc_done, SAADC_EVENT_BIT);
                 is_SAADC_done = false;
                 nrf_gpio_pin_set(SYSTEM_ON_LED);
                 ultrasonic_response_time[measurements] = ultrasonic_response_time_left;
