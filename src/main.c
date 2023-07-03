@@ -1,5 +1,5 @@
 // This code is written for the OBSmini with the aim to visualize the recieved echo signals as measured by the nRF52833.
-// The results can be used to tune limits/timings etc. 
+// The results can be used to tune limits/timings etc.
 // 38.5mA (36mA from ultrasonic bursts + 2.5mA from CPU, BLE, OpAmps etc.) when connected and sampling with 15+1 pulses every 20ms
 // 8µA when off (deep sleeping waiting for NFC)
 //
@@ -97,8 +97,8 @@ void error_handling();
 #define WDT_TIME_TO_RESET_MS    300000 // 5min = 5*60000ms
 #define LEFT_SENSOR             0
 #define RIGHT_SENSOR            1
-#define ECHO_RECEIVE_LIMIT_HIGH 1000
-#define INITIAL_PULSE_LIMIT_LOW 500
+#define ECHO_RECEIVE_LIMIT_HIGH 2000
+#define INITIAL_PULSE_LIMIT_LOW 200
 #define MAX_MEASUREMENTS        101
 #define SAADC_EVENT_BIT         BIT(0)
 
@@ -232,8 +232,8 @@ nrfx_timer_config_t timer_config = {
     .p_context          = NULL};
 
 uint16_t ultrasonic_response_time[MAX_MEASUREMENTS];
-uint16_t ultrasonic_response_time_left;
-uint16_t ultrasonic_response_time_right;
+uint16_t ultrasonic_response_time_left  = UINT16_MAX;
+uint16_t ultrasonic_response_time_right = UINT16_MAX;
 nrf_ppi_channel_t ppi_channel_to_sample_saadc_via_timmer;
 
 // PWM ------------------------------------------------------------------------------------------------------------------------
@@ -659,6 +659,7 @@ void main(void)
             events = k_event_wait(&saadc_done, SAADC_EVENT_BIT, false, K_MSEC(5000)); // this approach consumes 2.5mA vs 5mA when activly polling (without US-Trafos)
             if (events == 0)
             {
+                error_handling();
                 LOG_ERR("no SAADC converion done!");
             }
             else
@@ -667,10 +668,10 @@ void main(void)
                 is_SAADC_done = false;
                 nrf_gpio_pin_set(SYSTEM_ON_LED);
                 ultrasonic_response_time[measurements] = ultrasonic_response_time_left;
-                ultrasonic_response_time_left          = INT16_MAX;
+                ultrasonic_response_time_left          = UINT16_MAX;
                 ++measurements;
                 ultrasonic_response_time[measurements] = ultrasonic_response_time_right;
-                ultrasonic_response_time_right         = INT16_MAX;
+                ultrasonic_response_time_right         = UINT16_MAX;
                 ++measurements;
 
                 if (measurements >= MAX_MEASUREMENTS - 1)
@@ -682,12 +683,17 @@ void main(void)
                     encode_16bit_to_8bit_array(ultrasonic_response_time, ble_send_array, sizeof(ble_send_array));
                     err = bt_gatt_notify(current_ble_conn, &remote_srv.attrs[2], ble_send_array, sizeof(ble_send_array));
                     ERR_CHECK(err, "BLE notification failed");
+                    nrfx_wdt_feed(&wdt_instance);
                 }
                 burst_ultrasonic_pulse_sequence();
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
                 nrfx_timer_enable(&timer_to_measure_ultrasonic_response_instance);
                 nrfx_timer_enable(&timer_to_sample_saadc_via_ppi_instance);
-                k_usleep(100); // short delay needed to let voltage rise above INITIAL_PULSE_LIMIT_LOW before setting it as limit
+                k_usleep(100); // short delay needed to let voltage rise before setting INITIAL_PULSE_LIMIT_LOW as limit
                 nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
                 NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
             }
         }
