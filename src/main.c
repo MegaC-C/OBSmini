@@ -46,7 +46,7 @@
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason);
 void ble_chrc_ccc_cfg_changed_handler(const struct bt_gatt_attr *attr, uint16_t value);
-int16_t get_and_send_battery_voltage_mV();
+int16_t get_battery_voltage_mV();
 void burst_ultrasonic_pulse_sequence();
 void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uint16_t ble_send_array_length);
 void error_handling();
@@ -85,18 +85,18 @@ void error_handling();
 #define TRAFO_R2          NRF_GPIO_PIN_MAP(1, 9)
 #define OPAMPS_ON_OFF     NRF_GPIO_PIN_MAP(0, 15)
 
-#define SAADC_BUF_SIZE        4000 // at 200kHz it takes 20ms to fill the 4000 buffer
-#define SAADC_SAMPLINGRATE_US 5    // sample every 5 µs to get the max possible 200 kHz SAADC
-#define MAX_REC_COUNT         1
-#define NDEF_MSG_BUF_SIZE     512
-#define PWM_MAX               25 // must be lower than (2^16)/2 = 32768, 1 as MSB is the problem
-#define TIME_TO_SYSTEM_OFF_S  30
-#define WDT_TIME_TO_RESET_MS  300000 // 5min = 5*60000ms
-#define LEFT_SENSOR           0
-#define RIGHT_SENSOR          1
-#define SAADC_LIMIT_HIGH      1000
-#define SAADC_LIMIT_LOW       500
-#define MAX_MEASUREMENTS      49
+#define SAADC_BUF_SIZE          4000 // at 200kHz it takes 20ms to fill the 4000 buffer
+#define SAADC_SAMPLINGRATE_US   5    // sample every 5 µs to get the max possible 200 kHz SAADC
+#define MAX_REC_COUNT           1
+#define NDEF_MSG_BUF_SIZE       512
+#define PWM_MAX                 25 // must be lower than (2^16)/2 = 32768, 1 as MSB is the problem
+#define TIME_TO_SYSTEM_OFF_S    30
+#define WDT_TIME_TO_RESET_MS    300000 // 5min = 5*60000ms
+#define LEFT_SENSOR             0
+#define RIGHT_SENSOR            1
+#define ECHO_RECEIVE_LIMIT_HIGH 1000
+#define INITIAL_PULSE_LIMIT_LOW 500
+#define MAX_MEASUREMENTS        101
 
 // pre kernel initialization ------------------------------------------------------------------------------------------------------------------------
 LOG_MODULE_REGISTER(logging, LOG_LEVEL_DBG);
@@ -213,6 +213,7 @@ nrfx_saadc_channel_t saadc_battery_voltage_channel_config = {
 nrf_saadc_value_t saadc_samples[SAADC_BUF_SIZE];
 uint8_t measurements      = 0;
 bool saadc_buffer_is_full = false;
+bool is_SAADC_done        = false;
 
 // TIMER/PPI ------------------------------------------------------------------------------------------------------------------------
 nrfx_timer_t timer_to_sample_saadc_via_ppi_instance        = NRFX_TIMER_INSTANCE(1); // never use TIMER0 as it is used by BLE SoftDevice
@@ -324,47 +325,41 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
     switch (p_event->type)
     {
     case NRFX_SAADC_EVT_LIMIT:
-        if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_HIGH)
+        // here we activate the ECHO_RECEIVE_LIMIT_HIGH only after the signal from the initial ultrasonic pulse (INITIAL_PULSE_LIMIT_LOW) has subsided,
+        // after we received an echo we deactivate ECHO_RECEIVE_LIMIT_HIGH to detect only the first echoed signal 
+        if (p_event->data.limit.channel == LEFT_SENSOR)
         {
-            nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
-            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-            ultrasonic_response_time_left  = nrfx_timer_capture(&timer_to_measure_ultrasonic_response_instance, NRF_TIMER_CC_CHANNEL0);
-            ultrasonic_response_time_right = nrfx_timer_capture(&timer_to_measure_ultrasonic_response_instance, NRF_TIMER_CC_CHANNEL0);
+            if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
+            {
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, ECHO_RECEIVE_LIMIT_HIGH);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            }
+            else if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_HIGH)
+            {
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+                ultrasonic_response_time_left = nrfx_timer_capture(&timer_to_measure_ultrasonic_response_instance, NRF_TIMER_CC_CHANNEL0);
+            }
         }
-        else if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
+        else if (p_event->data.limit.channel == RIGHT_SENSOR)
         {
-            nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, SAADC_LIMIT_HIGH);
-            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
+            {
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, ECHO_RECEIVE_LIMIT_HIGH);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            }
+            else if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_HIGH)
+            {
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+                ultrasonic_response_time_right = nrfx_timer_capture(&timer_to_measure_ultrasonic_response_instance, NRF_TIMER_CC_CHANNEL0);
+            }
         }
         break;
     case NRFX_SAADC_EVT_DONE:
-        LOG_INF("SAADC_DONE");
         nrfx_timer_disable(&timer_to_measure_ultrasonic_response_instance);
         nrfx_timer_disable(&timer_to_sample_saadc_via_ppi_instance); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
-                                                                     // perhaps because one dimensional buffer was used instead of double buffer?
-        if (!ble_notif_enabled) break;
-        nrf_gpio_pin_set(SYSTEM_ON_LED);
-        ultrasonic_response_time[measurements] = ultrasonic_response_time_right;
-        ++measurements;
-        ultrasonic_response_time[measurements] = ultrasonic_response_time_left;
-        ++measurements;
-
-        if (measurements >= MAX_MEASUREMENTS)
-        {
-            // ultrasonic_response_time[measurements] = get_and_send_battery_voltage_mV();
-            measurements = 0;
-            encode_16bit_to_8bit_array(ultrasonic_response_time, ble_send_array, sizeof(ble_send_array));
-            err = bt_gatt_notify(current_ble_conn, &remote_srv.attrs[2], ble_send_array, sizeof(ble_send_array));
-            ERR_CHECK(err, "BLE notification failed");
-            // k_msleep(10);
-            nrf_gpio_pin_clear(SYSTEM_ON_LED);
-        }
-        burst_ultrasonic_pulse_sequence();
-        nrfx_timer_enable(&timer_to_measure_ultrasonic_response_instance);
-        nrfx_timer_enable(&timer_to_sample_saadc_via_ppi_instance);
-        k_usleep(100); // short delay needed to let voltage rise above SAADC_LIMIT_LOW before setting it as limit
-        nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, SAADC_LIMIT_LOW, INT16_MAX);
-        NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        is_SAADC_done = true;                                        // perhaps because one dimensional buffer was used instead of double buffer?
         break;
     case NRFX_SAADC_EVT_BUF_REQ:
         nrfx_err = nrfx_saadc_buffer_set(&saadc_samples[0], SAADC_BUF_SIZE);
@@ -530,7 +525,7 @@ void send_sensor_values(int left_right)
     }
 }
 
-int16_t get_and_send_battery_voltage_mV()
+int16_t get_battery_voltage_mV()
 {
     // reinitialize SAADC for single VDDH (battery voltage) conversion in blocking mode
     nrfx_saadc_uninit();
@@ -654,7 +649,34 @@ void main(void)
     {
         while (ble_notif_enabled)
         {
-            k_msleep(1000);
+            if (is_SAADC_done)
+            {
+                is_SAADC_done = false;
+                nrf_gpio_pin_set(SYSTEM_ON_LED);
+                ultrasonic_response_time[measurements] = ultrasonic_response_time_left;
+                ultrasonic_response_time_left          = INT16_MAX;
+                ++measurements;
+                ultrasonic_response_time[measurements] = ultrasonic_response_time_right;
+                ultrasonic_response_time_right         = INT16_MAX;
+                ++measurements;
+
+                if (measurements >= MAX_MEASUREMENTS - 1)
+                {
+                    nrf_gpio_pin_clear(SYSTEM_ON_LED);
+                    LOG_INF("SAADC_send");
+                    ultrasonic_response_time[measurements] = get_battery_voltage_mV();
+                    measurements                           = 0;
+                    encode_16bit_to_8bit_array(ultrasonic_response_time, ble_send_array, sizeof(ble_send_array));
+                    err = bt_gatt_notify(current_ble_conn, &remote_srv.attrs[2], ble_send_array, sizeof(ble_send_array));
+                    ERR_CHECK(err, "BLE notification failed");
+                }
+                burst_ultrasonic_pulse_sequence();
+                nrfx_timer_enable(&timer_to_measure_ultrasonic_response_instance);
+                nrfx_timer_enable(&timer_to_sample_saadc_via_ppi_instance);
+                k_usleep(100); // short delay needed to let voltage rise above INITIAL_PULSE_LIMIT_LOW before setting it as limit
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            }
         }
 
         if (NULL == current_ble_conn)
