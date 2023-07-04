@@ -7,7 +7,7 @@ LOG_MODULE_REGISTER(pulse_generator);
 
 static const nrfx_pwm_t pwm_for_ultrasonic_pulses_instance = NRFX_PWM_INSTANCE(0);
 
-static const nrfx_pwm_config_t const pwm_for_ultrasonic_pulses_peripheral_config = {
+static const nrfx_pwm_config_t pwm_for_ultrasonic_pulses_peripheral_config = {
     .output_pins = {
         TRAFO_L1,
         TRAFO_R1,

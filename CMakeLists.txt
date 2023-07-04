@@ -21,4 +21,5 @@ target_sources(app PRIVATE
     src/error_handling.c
     src/watchdog.c
     src/timer_and_ppi.c
+    src/nfc.c
 )

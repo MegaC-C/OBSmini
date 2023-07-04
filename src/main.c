@@ -31,9 +31,6 @@
 #include <zephyr/pm/pm.h>
 #include <zephyr/pm/policy.h>
 
-#include <nfc/ndef/launchapp_msg.h>
-#include <nfc_t2t_lib.h>
-
 #include <hal/nrf_power.h>
 
 #include <nrfx_saadc.h>
@@ -41,6 +38,7 @@
 #include <helpers/nrfx_reset_reason.h>
 
 #include "error_handling.h"
+#include "nfc.h"
 #include "pin_config.h"
 #include "pulse_generator.h"
 #include "timer_and_ppi.h"
@@ -61,9 +59,6 @@ void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uin
 #define BT_UUID_REMOTE_BUTTON_CHRC     BT_UUID_DECLARE_128(BT_UUID_REMOTE_BUTTON_CHRC_VAL)
 #define BLE_DEVICE_NAME                CONFIG_BT_DEVICE_NAME
 #define BLE_DEVICE_NAME_LEN            (sizeof(BLE_DEVICE_NAME) - 1)
-
-#define MAX_REC_COUNT     1
-#define NDEF_MSG_BUF_SIZE 512
 
 #define TIME_TO_SYSTEM_OFF_S 30
 
@@ -130,7 +125,6 @@ struct bt_conn_cb bluetooth_callbacks = {
     .connected    = ble_connected_handler,
     .disconnected = ble_disconnected_handler};
 
-
 int8_t ble_send_array[MAX_MEASUREMENTS * 2];
 bool ble_notif_enabled = false;
 
@@ -194,11 +188,7 @@ uint16_t ultrasonic_echo_time_right = UINT16_MAX;
 // PWM ------------------------------------------------------------------------------------------------------------------------
 
 // NFC ------------------------------------------------------------------------------------------------------------------------
-const uint8_t android_pkg_name[] = {
-    'a', 'p', 'p', 'i', 'n', 'v', 'e', 'n', 't', 'o', 'r', '.', 'a', 'i', '_', 'c', 'o', 'r', 'v', 'i', 'n', 'l', 'o', 's', 's', 'i', 'n', '.', 'O', 'B', 'S', 'm', 'i', 'n', 'i', '_', 'A', 'D', 'C'};
-// 'c', 'o', 'm', '.', 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'o', 'b', 's', 'm', 'i', 'n', 'i'};
 
-uint8_t ndef_msg_buf[NDEF_MSG_BUF_SIZE];
 
 // WDT ------------------------------------------------------------------------------------------------------------------------
 
@@ -345,29 +335,7 @@ void saadc_init(void)
     NRFX_ERR_CHECK(nrfx_err, "triggering SAADC mode failed");
 }
 
-void nfc_init(void)
-{
-    size_t ndef_msg_buf_len = sizeof(ndef_msg_buf);
 
-    err = nfc_t2t_setup(nfc_handler, NULL);
-    ERR_CHECK(err, "Cannot setup NFC T2T library!");
-
-    err = nfc_launchapp_msg_encode(android_pkg_name,
-                                   sizeof(android_pkg_name),
-                                   NULL,
-                                   0,
-                                   ndef_msg_buf,
-                                   &ndef_msg_buf_len);
-    ERR_CHECK(err, "Cannot encode NFC messages!");
-
-    err = nfc_t2t_payload_set(ndef_msg_buf, ndef_msg_buf_len);
-    ERR_CHECK(err, "Cannot set NFC payload");
-
-    err = nfc_t2t_emulation_start();
-    ERR_CHECK(err, "Cannot start NFC emulation!");
-
-    LOG_INF("NFC configuration done");
-}
 
 // https://devzone.nordicsemi.com/f/nordic-q-a/50415/sending-32-bit-of-data-over-ble-onto-nrf52832
 void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uint16_t ble_send_array_length)
@@ -475,7 +443,7 @@ void main(void)
     watchdog_init(wdt_handler);
     saadc_init();
     timer_and_ppi_init();
-    nfc_init();
+    nfc_init(nfc_handler);
     pulse_generator_init();
 
     turn_opamps_on();
@@ -507,7 +475,7 @@ void main(void)
                     nrf_gpio_pin_clear(BLUE_LED);
                     LOG_INF("SAADC_send");
                     ultrasonic_echo_time[measurements] = get_battery_voltage_mV();
-                    measurements                           = 0;
+                    measurements                       = 0;
                     encode_16bit_to_8bit_array(ultrasonic_echo_time, ble_send_array, sizeof(ble_send_array));
                     err = bt_gatt_notify(current_ble_conn, &remote_srv.attrs[2], ble_send_array, sizeof(ble_send_array));
                     ERR_CHECK(err, "BLE notification failed");
