@@ -17,11 +17,11 @@ project(OBSmini_ADC)
 
 target_sources(app PRIVATE 
     src/main.c
-    src/pulse_generator.c
-    src/error_handling.c
-    src/watchdog.c
-    src/timer_and_ppi.c
-    src/nfc.c
-    src/saadc.c
     src/ble.c
+    src/error_handling.c
+    src/nfc.c
+    src/pulse_generator.c
+    src/saadc.c
+    src/timer_and_ppi.c
+    src/watchdog.c    
 )

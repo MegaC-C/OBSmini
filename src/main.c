@@ -39,19 +39,20 @@
 #include "watchdog.h"
 
 #define TIME_TO_SYSTEM_OFF_S 30
-#define SAADC_EVENT_BIT      BIT(0)
+#define SAADC_EVENT_DONE     BIT(0)
 
 // forward declarations	------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason);
 
-// global variables	------------------------------------------------------------------------------------------------------------------------
 struct bt_conn *current_ble_conn;
 struct bt_conn_cb bluetooth_handlers = {
     .connected    = ble_connected_handler,
     .disconnected = ble_disconnected_handler};
+
+// global variables	------------------------------------------------------------------------------------------------------------------------
 bool ble_notifications_enabled      = false;
-uint8_t measurements                = 0;
+uint8_t measurements                = 1;
 uint16_t ultrasonic_echo_time_left  = UINT16_MAX;
 uint16_t ultrasonic_echo_time_right = UINT16_MAX;
 uint16_t ultrasonic_echo_times_us[MAX_MEASUREMENTS];
@@ -167,7 +168,7 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
     case NRFX_SAADC_EVT_DONE:
         timer_stop(); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
                       // perhaps because one dimensional buffer was used instead of double buffer?
-        k_event_set(&saadc_done, SAADC_EVENT_BIT);
+        k_event_set(&saadc_done, SAADC_EVENT_DONE);
         break;
     case NRFX_SAADC_EVT_BUF_REQ:
         saadc_buffer_set();
@@ -248,16 +249,16 @@ void main(void)
     uint32_t events;
     uint16_t system_off_counter = TIME_TO_SYSTEM_OFF_S;
 
-    LOG_INF("Hello World! %s\n", CONFIG_BOARD);
+    LOG_INF("Hello OBSmini! Config = %s", CONFIG_BOARD);
 
     nrf_gpio_cfg_output(BLUE_LED);
-    nrf_gpio_pin_clear(BLUE_LED);
+    nrf_gpio_pin_clear(BLUE_LED); // => ON
 
     nrf_gpio_cfg_output(RED_LED);
-    nrf_gpio_pin_set(RED_LED);
+    nrf_gpio_pin_set(RED_LED); // => OFF
 
     nrf_gpio_cfg_output(OPAMPS_ON_OFF);
-    nrf_gpio_pin_set(OPAMPS_ON_OFF);
+    nrf_gpio_pin_set(OPAMPS_ON_OFF); // => OFF
 
     watchdog_init(wdt_handler);
     saadc_init(saadc_handler);
@@ -272,7 +273,7 @@ void main(void)
     {
         while (ble_notifications_enabled)
         {
-            events = k_event_wait(&saadc_done, SAADC_EVENT_BIT, false, K_MSEC(5000)); // this approach consumes 2.5mA vs 5mA when activly polling (without US-Trafos)
+            events = k_event_wait(&saadc_done, SAADC_EVENT_DONE, false, K_MSEC(5000)); // this approach consumes 2.5mA vs 5mA when activly polling (without US-Trafos)
             if (events == 0)
             {
                 error_handling();
@@ -280,8 +281,8 @@ void main(void)
             }
             else
             {
-                k_event_clear(&saadc_done, SAADC_EVENT_BIT);
                 nrf_gpio_pin_set(BLUE_LED);
+
                 ultrasonic_echo_times_us[measurements] = ultrasonic_echo_time_left;
                 ultrasonic_echo_time_left              = UINT16_MAX;
                 ++measurements;
@@ -289,24 +290,29 @@ void main(void)
                 ultrasonic_echo_time_right             = UINT16_MAX;
                 ++measurements;
 
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+
                 if (measurements >= MAX_MEASUREMENTS)
                 {
                     nrf_gpio_pin_clear(BLUE_LED);
                     LOG_INF("SAADC_send");
-                    ultrasonic_echo_times_us[measurements] = get_battery_voltage_mV(saadc_handler);
-                    measurements                           = 0;
+                    ultrasonic_echo_times_us[0] = get_battery_voltage_mV(saadc_handler);
+                    measurements                = 1;
                     ble_send(current_ble_conn, ultrasonic_echo_times_us, sizeof(ultrasonic_echo_times_us));
                     watchdog_feed();
                 }
                 burst_ultrasonic_pulse_sequence();
-                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
-                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
                 timer_start();
                 k_usleep(100); // short delay needed to let voltage rise before setting INITIAL_PULSE_LIMIT_LOW as limit
                 nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
+                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
                 nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
                 NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+
+                k_event_clear(&saadc_done, SAADC_EVENT_DONE);
             }
         }
 
