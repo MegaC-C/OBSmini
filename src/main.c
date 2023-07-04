@@ -21,7 +21,6 @@
 // https://github.com/zephyrproject-rtos/zephyr/pull/56309/commits/2094e19a3c58297125c1289ea0ddec89db317f96
 //
 //
-
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -39,15 +38,23 @@
 #include "timer_and_ppi.h"
 #include "watchdog.h"
 
+#define TIME_TO_SYSTEM_OFF_S 30
+#define SAADC_EVENT_BIT      BIT(0)
+
 // forward declarations	------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason);
 
-void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uint16_t ble_send_array_length);
-
-#define TIME_TO_SYSTEM_OFF_S 30
-
-#define SAADC_EVENT_BIT BIT(0)
+// global variables	------------------------------------------------------------------------------------------------------------------------
+struct bt_conn *current_ble_conn;
+struct bt_conn_cb bluetooth_handlers = {
+    .connected    = ble_connected_handler,
+    .disconnected = ble_disconnected_handler};
+bool ble_notifications_enabled      = false;
+uint8_t measurements                = 0;
+uint16_t ultrasonic_echo_time_left  = UINT16_MAX;
+uint16_t ultrasonic_echo_time_right = UINT16_MAX;
+uint16_t ultrasonic_echo_times_us[MAX_MEASUREMENTS];
 
 // pre kernel initialization ------------------------------------------------------------------------------------------------------------------------
 LOG_MODULE_REGISTER(main);
@@ -89,35 +96,6 @@ int set_REGOUT0_to_3V0(void)
 }
 SYS_INIT(set_REGOUT0_to_3V0, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 
-// BLE ------------------------------------------------------------------------------------------------------------------------
-
-struct bt_conn *current_ble_conn;
-
-struct bt_conn_cb bluetooth_callbacks = {
-    .connected    = ble_connected_handler,
-    .disconnected = ble_disconnected_handler};
-
-int8_t ble_send_array[MAX_MEASUREMENTS * 2];
-bool ble_notif_enabled = false;
-
-// SAADC ------------------------------------------------------------------------------------------------------------------------
-
-uint8_t measurements      = 0;
-bool saadc_buffer_is_full = false;
-bool is_SAADC_done        = false;
-
-// TIMER/PPI ------------------------------------------------------------------------------------------------------------------------
-
-uint16_t ultrasonic_echo_times_us[MAX_MEASUREMENTS];
-uint16_t ultrasonic_echo_time_left  = UINT16_MAX;
-uint16_t ultrasonic_echo_time_right = UINT16_MAX;
-
-// PWM ------------------------------------------------------------------------------------------------------------------------
-
-// NFC ------------------------------------------------------------------------------------------------------------------------
-
-// WDT ------------------------------------------------------------------------------------------------------------------------
-
 // interrupt handlers ------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err)
 {
@@ -132,8 +110,6 @@ void ble_connected_handler(struct bt_conn *conn, uint8_t err)
 
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason)
 {
-    ARG_UNUSED(conn);
-
     LOG_INF("Disconnected (reason: %d)", reason);
     if (current_ble_conn)
     {
@@ -144,11 +120,9 @@ void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason)
 
 void ble_notification_changed_handler(const struct bt_gatt_attr *attr, uint16_t value)
 {
-    ARG_UNUSED(attr);
-
-    ble_notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-    LOG_INF("Notifications %s", ble_notif_enabled ? "enabled" : "disabled");
-    if (ble_notif_enabled)
+    ble_notifications_enabled = (value == BT_GATT_CCC_NOTIFY);
+    LOG_INF("Notifications %s", ble_notifications_enabled ? "enabled" : "disabled");
+    if (ble_notifications_enabled)
     {
         timer_start();
     }
@@ -191,8 +165,8 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
         }
         break;
     case NRFX_SAADC_EVT_DONE:
-        timer_stop();         // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
-        is_SAADC_done = true; // perhaps because one dimensional buffer was used instead of double buffer?
+        timer_stop(); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
+                      // perhaps because one dimensional buffer was used instead of double buffer?
         k_event_set(&saadc_done, SAADC_EVENT_BIT);
         break;
     case NRFX_SAADC_EVT_BUF_REQ:
@@ -209,10 +183,6 @@ void nfc_handler(void *context,
                  const uint8_t *data,
                  size_t data_length)
 {
-    ARG_UNUSED(context);
-    ARG_UNUSED(data);
-    ARG_UNUSED(data_length);
-
     switch (event)
     {
     case NFC_T2T_EVENT_DATA_READ:
@@ -234,7 +204,6 @@ void wdt_handler(void)
 }
 
 // functions ------------------------------------------------------------------------------------------------------------------------
-
 void turn_opamps_on()
 {
     // simply setting the pin is to much inrush current resulting in a SOC reset, so the OpAmps must be slowly toggled on
@@ -291,17 +260,17 @@ void main(void)
     nrf_gpio_pin_set(OPAMPS_ON_OFF);
 
     watchdog_init(wdt_handler);
-    ble_init(&bluetooth_callbacks);
     saadc_init(saadc_handler);
     timer_and_ppi_init();
     nfc_init(nfc_handler);
     pulse_generator_init();
+    ble_init(&bluetooth_handlers);
 
     turn_opamps_on();
 
     while (true)
     {
-        while (ble_notif_enabled)
+        while (ble_notifications_enabled)
         {
             events = k_event_wait(&saadc_done, SAADC_EVENT_BIT, false, K_MSEC(5000)); // this approach consumes 2.5mA vs 5mA when activly polling (without US-Trafos)
             if (events == 0)
@@ -312,7 +281,6 @@ void main(void)
             else
             {
                 k_event_clear(&saadc_done, SAADC_EVENT_BIT);
-                is_SAADC_done = false;
                 nrf_gpio_pin_set(BLUE_LED);
                 ultrasonic_echo_times_us[measurements] = ultrasonic_echo_time_left;
                 ultrasonic_echo_time_left              = UINT16_MAX;

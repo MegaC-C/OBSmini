@@ -105,7 +105,6 @@ int16_t get_battery_voltage_mV(nrfx_saadc_event_handler_t saadc_event_handler)
     // reinitialize SAADC for continous PPI triggered conversions
     nrfx_saadc_uninit();
     saadc_init(saadc_event_handler);
-    
 
     // 1.465 results from combining NRF_SAADC_RESOLUTION_12BIT, NRF_SAADC_GAIN1_2, NRF_SAADC_REFERENCE_INTERNAL and NRF_SAADC_INPUT_VDDHDIV5
     return (saadc_samples[0] * 1.465);
