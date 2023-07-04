@@ -18,4 +18,7 @@ project(OBSmini_ADC)
 target_sources(app PRIVATE 
     src/main.c
     src/pulse_generator.c
+    src/error_handling.c
+    src/watchdog.c
+    src/timer_and_ppi.c
 )
