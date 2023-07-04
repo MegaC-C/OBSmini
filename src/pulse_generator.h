@@ -2,7 +2,7 @@
 #define PULSE_GENERATOR_H
 
 #include "error_handling.h"
-#include "pin_config.h"
+#include "global_config.h"
 #include <nrfx_pwm.h>
 #include <zephyr/logging/log.h>
 

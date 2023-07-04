@@ -21,10 +21,7 @@
 // https://github.com/zephyrproject-rtos/zephyr/pull/56309/commits/2094e19a3c58297125c1289ea0ddec89db317f96
 //
 //
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/hci.h>
-#include <zephyr/bluetooth/uuid.h>
+
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -33,11 +30,10 @@
 
 #include <hal/nrf_power.h>
 
-#include <helpers/nrfx_reset_reason.h>
-
+#include "ble.h"
 #include "error_handling.h"
+#include "global_config.h"
 #include "nfc.h"
-#include "pin_config.h"
 #include "pulse_generator.h"
 #include "saadc.h"
 #include "timer_and_ppi.h"
@@ -46,17 +42,8 @@
 // forward declarations	------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason);
-void ble_chrc_ccc_cfg_changed_handler(const struct bt_gatt_attr *attr, uint16_t value);
 
 void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uint16_t ble_send_array_length);
-
-#define BT_UUID_REMOTE_SERV_VAL        BT_UUID_128_ENCODE(0x00001523, 0x1212, 0xefde, 0x1523, 0x785feabcd123)
-#define BT_UUID_REMOTE_SERVICE         BT_UUID_DECLARE_128(BT_UUID_REMOTE_SERV_VAL)
-#define BT_UUID_REMOTE_BUTTON_CHRC_VAL BT_UUID_128_ENCODE(0x00001524, 0x1212, 0xefde, 0x1523, 0x785feabcd123)
-#define BT_UUID_REMOTE_BUTTON_CHRC     BT_UUID_DECLARE_128(BT_UUID_REMOTE_BUTTON_CHRC_VAL)
-#define BT_UUID_REMOTE_BUTTON_CHRC     BT_UUID_DECLARE_128(BT_UUID_REMOTE_BUTTON_CHRC_VAL)
-#define BLE_DEVICE_NAME                CONFIG_BT_DEVICE_NAME
-#define BLE_DEVICE_NAME_LEN            (sizeof(BLE_DEVICE_NAME) - 1)
 
 #define TIME_TO_SYSTEM_OFF_S 30
 
@@ -103,19 +90,8 @@ int set_REGOUT0_to_3V0(void)
 SYS_INIT(set_REGOUT0_to_3V0, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 
 // BLE ------------------------------------------------------------------------------------------------------------------------
-BT_GATT_SERVICE_DEFINE(remote_srv,
-                       BT_GATT_PRIMARY_SERVICE(BT_UUID_REMOTE_SERVICE),
-                       BT_GATT_CHARACTERISTIC(BT_UUID_REMOTE_BUTTON_CHRC,
-                                              BT_GATT_CHRC_NOTIFY,
-                                              BT_GATT_PERM_READ,
-                                              NULL, NULL, NULL),
-                       BT_GATT_CCC(ble_chrc_ccc_cfg_changed_handler, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
 
 struct bt_conn *current_ble_conn;
-
-const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, BLE_DEVICE_NAME, BLE_DEVICE_NAME_LEN)};
 
 struct bt_conn_cb bluetooth_callbacks = {
     .connected    = ble_connected_handler,
@@ -132,7 +108,7 @@ bool is_SAADC_done        = false;
 
 // TIMER/PPI ------------------------------------------------------------------------------------------------------------------------
 
-uint16_t ultrasonic_echo_time[MAX_MEASUREMENTS];
+uint16_t ultrasonic_echo_times_us[MAX_MEASUREMENTS];
 uint16_t ultrasonic_echo_time_left  = UINT16_MAX;
 uint16_t ultrasonic_echo_time_right = UINT16_MAX;
 
@@ -166,7 +142,7 @@ void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason)
     }
 }
 
-void ble_chrc_ccc_cfg_changed_handler(const struct bt_gatt_attr *attr, uint16_t value)
+void ble_notification_changed_handler(const struct bt_gatt_attr *attr, uint16_t value)
 {
     ARG_UNUSED(attr);
 
@@ -259,12 +235,6 @@ void wdt_handler(void)
 
 // functions ------------------------------------------------------------------------------------------------------------------------
 
-// https://devzone.nordicsemi.com/f/nordic-q-a/50415/sending-32-bit-of-data-over-ble-onto-nrf52832
-void encode_16bit_to_8bit_array(int16_t *data_array, int8_t *ble_send_array, uint16_t ble_send_array_length)
-{
-    memcpy(ble_send_array, data_array, ble_send_array_length);
-}
-
 void turn_opamps_on()
 {
     // simply setting the pin is to much inrush current resulting in a SOC reset, so the OpAmps must be slowly toggled on
@@ -307,7 +277,7 @@ void turn_system_off()
 void main(void)
 {
     uint32_t events;
-    uint8_t system_off_counter = TIME_TO_SYSTEM_OFF_S;
+    uint16_t system_off_counter = TIME_TO_SYSTEM_OFF_S;
 
     LOG_INF("Hello World! %s\n", CONFIG_BOARD);
 
@@ -320,13 +290,8 @@ void main(void)
     nrf_gpio_cfg_output(OPAMPS_ON_OFF);
     nrf_gpio_pin_set(OPAMPS_ON_OFF);
 
-    bt_conn_cb_register(&bluetooth_callbacks);
-    err = bt_enable(NULL);
-    ERR_CHECK(err, "Cannot enable BLE!");
-    err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
-    ERR_CHECK(err, "Cannot start advertising");
-
     watchdog_init(wdt_handler);
+    ble_init(&bluetooth_callbacks);
     saadc_init(saadc_handler);
     timer_and_ppi_init();
     nfc_init(nfc_handler);
@@ -349,22 +314,20 @@ void main(void)
                 k_event_clear(&saadc_done, SAADC_EVENT_BIT);
                 is_SAADC_done = false;
                 nrf_gpio_pin_set(BLUE_LED);
-                ultrasonic_echo_time[measurements] = ultrasonic_echo_time_left;
-                ultrasonic_echo_time_left          = UINT16_MAX;
+                ultrasonic_echo_times_us[measurements] = ultrasonic_echo_time_left;
+                ultrasonic_echo_time_left              = UINT16_MAX;
                 ++measurements;
-                ultrasonic_echo_time[measurements] = ultrasonic_echo_time_right;
-                ultrasonic_echo_time_right         = UINT16_MAX;
+                ultrasonic_echo_times_us[measurements] = ultrasonic_echo_time_right;
+                ultrasonic_echo_time_right             = UINT16_MAX;
                 ++measurements;
 
                 if (measurements >= MAX_MEASUREMENTS)
                 {
                     nrf_gpio_pin_clear(BLUE_LED);
                     LOG_INF("SAADC_send");
-                    ultrasonic_echo_time[measurements] = get_battery_voltage_mV(saadc_handler);
-                    measurements                       = 0;
-                    encode_16bit_to_8bit_array(ultrasonic_echo_time, ble_send_array, sizeof(ble_send_array));
-                    err = bt_gatt_notify(current_ble_conn, &remote_srv.attrs[2], ble_send_array, sizeof(ble_send_array));
-                    ERR_CHECK(err, "BLE notification failed");
+                    ultrasonic_echo_times_us[measurements] = get_battery_voltage_mV(saadc_handler);
+                    measurements                           = 0;
+                    ble_send(current_ble_conn, ultrasonic_echo_times_us, sizeof(ultrasonic_echo_times_us));
                     watchdog_feed();
                 }
                 burst_ultrasonic_pulse_sequence();

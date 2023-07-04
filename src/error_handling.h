@@ -1,7 +1,7 @@
 #ifndef ERROR_HANDLING_H
 #define ERROR_HANDLING_H
 
-#include "pin_config.h"
+#include "global_config.h"
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 

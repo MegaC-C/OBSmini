@@ -1,5 +1,5 @@
-#ifndef PIN_CONFIG_H
-#define PIN_CONFIG_H
+#ifndef GLOBAL_CONFIG_H
+#define GLOBAL_CONFIG_H
 
 #include <hal/nrf_gpio.h>
 
