@@ -34,7 +34,7 @@
 #include <nfc/ndef/launchapp_msg.h>
 #include <nfc_t2t_lib.h>
 
-#include <hal/nrf_gpio.h>
+
 #include <hal/nrf_power.h>
 
 #include <nrfx_ppi.h>
@@ -44,6 +44,8 @@
 #include <nrfx_wdt.h>
 
 #include <helpers/nrfx_reset_reason.h>
+
+#include "pin_config.h"
 
 // forward declarations	------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
@@ -76,13 +78,7 @@ void error_handling();
 #define BLE_DEVICE_NAME                CONFIG_BT_DEVICE_NAME
 #define BLE_DEVICE_NAME_LEN            (sizeof(BLE_DEVICE_NAME) - 1)
 
-#define BLUE_LED          NRF_GPIO_PIN_MAP(0, 17)
-#define RED_LED           NRF_GPIO_PIN_MAP(0, 20)
-#define TRAFO_L1          NRF_GPIO_PIN_MAP(0, 4)
-#define TRAFO_L2          NRF_GPIO_PIN_MAP(0, 5)
-#define TRAFO_R1          NRF_GPIO_PIN_MAP(0, 11)
-#define TRAFO_R2          NRF_GPIO_PIN_MAP(1, 9)
-#define OPAMPS_ON_OFF     NRF_GPIO_PIN_MAP(0, 15)
+
 
 #define SAADC_BUF_SIZE          4000 // at 200kHz it takes 20ms to fill the 4000 buffer
 #define SAADC_SAMPLINGRATE_US   5    // sample every 5 µs to get the max possible 200 kHz SAADC
@@ -91,8 +87,7 @@ void error_handling();
 #define PWM_MAX                 25 // must be lower than (2^16)/2 = 32768, 1 as MSB is the problem
 #define TIME_TO_SYSTEM_OFF_S    30
 #define WDT_TIME_TO_RESET_MS    300000 // 5min = 5*60000ms
-#define LEFT_SENSOR             0
-#define RIGHT_SENSOR            1
+
 #define ECHO_RECEIVE_LIMIT_HIGH 2000
 #define INITIAL_PULSE_LIMIT_LOW 200
 #define MAX_MEASUREMENTS        101
