@@ -78,10 +78,6 @@ void error_handling();
 
 #define BLUE_LED          NRF_GPIO_PIN_MAP(0, 17)
 #define RED_LED           NRF_GPIO_PIN_MAP(0, 20)
-#define SYSTEM_ON_LED     BLUE_LED
-#define BLE_CONNECTED_LED BLUE_LED
-#define NFC_FIELD_LED     RED_LED
-#define ERROR_LED         RED_LED
 #define TRAFO_L1          NRF_GPIO_PIN_MAP(0, 4)
 #define TRAFO_L2          NRF_GPIO_PIN_MAP(0, 5)
 #define TRAFO_R1          NRF_GPIO_PIN_MAP(0, 11)
@@ -299,7 +295,6 @@ void ble_connected_handler(struct bt_conn *conn, uint8_t err)
     }
     LOG_INF("Connected.");
     current_ble_conn = bt_conn_ref(conn);
-    nrf_gpio_pin_clear(BLE_CONNECTED_LED);
 }
 
 void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason)
@@ -307,7 +302,6 @@ void ble_disconnected_handler(struct bt_conn *conn, uint8_t reason)
     ARG_UNUSED(conn);
 
     LOG_INF("Disconnected (reason: %d)", reason);
-    nrf_gpio_pin_set(BLE_CONNECTED_LED);
     if (current_ble_conn)
     {
         bt_conn_unref(current_ble_conn);
@@ -389,10 +383,10 @@ void nfc_handler(void *context,
     switch (event)
     {
     case NFC_T2T_EVENT_DATA_READ:
-        nrf_gpio_pin_clear(NFC_FIELD_LED);
+        nrf_gpio_pin_clear(RED_LED);
         break;
     case NFC_T2T_EVENT_FIELD_OFF:
-        nrf_gpio_pin_set(NFC_FIELD_LED);
+        nrf_gpio_pin_set(RED_LED);
         break;
     default:
         break;
@@ -586,7 +580,8 @@ void turn_system_off()
 {
     LOG_INF("Entering system off.\nApproach a NFC reader to restart.");
 
-    nrf_gpio_pin_set(SYSTEM_ON_LED);
+    nrf_gpio_pin_set(BLUE_LED);
+    nrf_gpio_pin_set(RED_LED);
     nrf_gpio_pin_set(OPAMPS_ON_OFF);
 
     // needed to finish logging before system off
@@ -604,7 +599,7 @@ void turn_system_off()
     // k_sleep will never exit, so below two lines will never be executed
     // if system off was correct. On the other hand if someting gone wrong
     // we will see it on terminal and LED.
-    nrf_gpio_pin_clear(SYSTEM_ON_LED);
+    nrf_gpio_pin_clear(BLUE_LED);
     LOG_ERR("ERROR: System off failed\n");
 }
 
@@ -612,10 +607,10 @@ void error_handling()
 {
     for (int i = 0; i < 5; i++)
     {
-        nrf_gpio_pin_toggle(ERROR_LED);
+        nrf_gpio_pin_toggle(RED_LED);
         k_msleep(200);
     }
-    nrf_gpio_pin_set(ERROR_LED);
+    nrf_gpio_pin_set(RED_LED);
 }
 
 void main(void)
@@ -666,7 +661,7 @@ void main(void)
             {
                 k_event_clear(&saadc_done, SAADC_EVENT_BIT);
                 is_SAADC_done = false;
-                nrf_gpio_pin_set(SYSTEM_ON_LED);
+                nrf_gpio_pin_set(BLUE_LED);
                 ultrasonic_response_time[measurements] = ultrasonic_response_time_left;
                 ultrasonic_response_time_left          = UINT16_MAX;
                 ++measurements;
@@ -674,9 +669,9 @@ void main(void)
                 ultrasonic_response_time_right         = UINT16_MAX;
                 ++measurements;
 
-                if (measurements >= MAX_MEASUREMENTS - 1)
+                if (measurements >= MAX_MEASUREMENTS)
                 {
-                    nrf_gpio_pin_clear(SYSTEM_ON_LED);
+                    nrf_gpio_pin_clear(BLUE_LED);
                     LOG_INF("SAADC_send");
                     ultrasonic_response_time[measurements] = get_battery_voltage_mV();
                     measurements                           = 0;
@@ -711,7 +706,7 @@ void main(void)
             system_off_counter = TIME_TO_SYSTEM_OFF_S;
         }
 
-        nrf_gpio_pin_toggle(SYSTEM_ON_LED);
+        nrf_gpio_pin_toggle(BLUE_LED);
         nrfx_wdt_feed(&wdt_instance);
         k_msleep(1000);
     }

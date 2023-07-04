@@ -15,4 +15,7 @@ set(mcuboot_CONFIG_DISABLE_FLASH_PATCH y)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(OBSmini_ADC)
 
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE 
+    src/main.c
+    src/pulse_generator.c
+)
