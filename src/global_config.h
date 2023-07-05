@@ -13,8 +13,10 @@
 #define LEFT_SENSOR   0
 #define RIGHT_SENSOR  1
 
-#define SAADC_BUF_SIZE        4000 // at 200kHz it takes 20ms to fill the 4000 buffer
 #define SAADC_SAMPLINGRATE_US 5    // sample every 5 µs to get the max possible 200 kHz SAADC
-#define MAX_MEASUREMENTS      101  // 2 measurements take 20ms
+#define SAADC_BUF_SIZE        4000 // at 200kHz it takes 20ms to fill the 4000 buffer
+#define MAX_MEASUREMENTS      101
+
+#define TIME_TO_SYSTEM_OFF_S 30
 
 #endif

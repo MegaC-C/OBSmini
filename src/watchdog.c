@@ -24,7 +24,7 @@ void watchdog_init(nrfx_wdt_event_handler_t wdt_event_handler)
     nrfx_wdt_enable(&wdt_instance);
 }
 
-void watchdog_feed()
+void watchdog_feed(void)
 {
     nrfx_wdt_feed(&wdt_instance);
 }

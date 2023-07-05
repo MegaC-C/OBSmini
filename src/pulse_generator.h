@@ -6,7 +6,7 @@
 #include <nrfx_pwm.h>
 #include <zephyr/logging/log.h>
 
-void pulse_generator_init();
-void burst_ultrasonic_pulse_sequence();
+void pulse_generator_init(void);
+void burst_ultrasonic_pulse_sequence(void);
 
 #endif

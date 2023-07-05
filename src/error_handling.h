@@ -21,6 +21,6 @@
 extern int nrfx_err;
 extern int err;
 
-void error_handling();
+void error_handling(void);
 
 #endif

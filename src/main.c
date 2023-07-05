@@ -38,8 +38,7 @@
 #include "timer_and_ppi.h"
 #include "watchdog.h"
 
-#define TIME_TO_SYSTEM_OFF_S 30
-#define SAADC_EVENT_DONE     BIT(0)
+#define SAADC_EVENT_DONE BIT(0)
 
 // forward declarations	------------------------------------------------------------------------------------------------------------------------
 void ble_connected_handler(struct bt_conn *conn, uint8_t err);
@@ -219,13 +218,13 @@ void turn_opamps_on()
 
 void turn_system_off()
 {
-    LOG_INF("Entering system off.\nApproach a NFC reader to restart.");
+    LOG_INF("Entering system off. Approach a NFC reader to restart.");
 
     nrf_gpio_pin_set(BLUE_LED);
     nrf_gpio_pin_set(RED_LED);
     nrf_gpio_pin_set(OPAMPS_ON_OFF);
 
-    // needed to finish logging before system off
+    // needed to finish turn off before system off
     k_msleep(1);
 
     // Above we disabled entry to deep sleep based on duration of
@@ -235,13 +234,13 @@ void turn_system_off()
 
     // Going into sleep will actually go to system off mode, because we
     // forced it above.
-    k_msleep(1);
+    k_sleep(K_FOREVER);
 
     // k_sleep will never exit, so below two lines will never be executed
     // if system off was correct. On the other hand if someting gone wrong
     // we will see it on terminal and LED.
     nrf_gpio_pin_clear(BLUE_LED);
-    LOG_ERR("ERROR: System off failed\n");
+    LOG_ERR("ERROR: System off failed");
 }
 
 void main(void)
@@ -316,10 +315,11 @@ void main(void)
             }
         }
 
-        if (NULL == current_ble_conn)
+        if (current_ble_conn == NULL)
         {
             --system_off_counter;
-            if (0 == system_off_counter)
+
+            if (system_off_counter == 0)
             {
                 turn_system_off();
             }

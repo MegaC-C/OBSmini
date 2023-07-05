@@ -37,13 +37,13 @@ static const nrf_pwm_sequence_t pwm_15plus1pulses_seq = {
     .repeats          = 0,
     .end_delay        = 0};
 
-void pulse_generator_init()
+void pulse_generator_init(void)
 {
     nrfx_err = nrfx_pwm_init(&pwm_for_ultrasonic_pulses_instance, &pwm_for_ultrasonic_pulses_peripheral_config, NULL, NULL);
     NRFX_ERR_CHECK(nrfx_err, "Cannot start PWM peripheral")
 }
 
-void burst_ultrasonic_pulse_sequence()
+void burst_ultrasonic_pulse_sequence(void)
 {
     nrfx_pwm_simple_playback(&pwm_for_ultrasonic_pulses_instance, &pwm_15plus1pulses_seq, 1, NRFX_PWM_FLAG_STOP);
 }
