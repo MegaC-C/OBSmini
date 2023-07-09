@@ -6,7 +6,6 @@
 // Most code comes from official examples:
 // NFC/Powermanagement: nrf/samples/nfc/system_off
 // SAADC/PPI: https://github.com/NordicPlayground/nRF52-ADC-examples/tree/master/nrfx_saadc_multi_channel_ppi
-
 // BLE: webinar: Developing Bluetooth Low Energy products using nRF Connect SDK
 // PWM: nRF5_SDKv17.0.2/examples/peripheral/pwm_driver
 // DFU_OTA: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/working_with_nrf/nrf52/developing.html#fota-updates
@@ -15,12 +14,10 @@
 // MCUBoot: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/app_dev/bootloaders_and_dfu/index.html
 //		and https://github.com/hellesvik-nordic/samples_for_nrf_connect_sdk/tree/1111836cd720127c7f2b0dc0bec9f7ef496b8954/bootloader_samples
 //
-// in general when starting from scratch only 4 files are touched: main.c, CMakeLists.txt, prj.conf and a new custom key in /custom_key_dir needs to be added
-// the rest (build configurations, devicetree, ncs root files, etc.) are untouched (except for missed ncs/zephyr pull requests which are added manually, should be obsolete in future)
+// missed ncs/zephyr pull requests which have to be added manually (should be obsolete in future):
 // https://github.com/zephyrproject-rtos/zephyr/pull/57886/commits/15e7ab19fc0b8d51942c3cca5d1b13df0ebdbec0
 // https://github.com/zephyrproject-rtos/zephyr/pull/56309/commits/2094e19a3c58297125c1289ea0ddec89db317f96
-//
-//
+
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -178,6 +175,21 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
     }
 }
 
+void timer_handler(nrf_timer_event_t event_type, void *p_context)
+{
+    switch (event_type)
+    {
+    case NRF_TIMER_EVENT_COMPARE0:
+        nrf_gpio_pin_clear(RED_LED);
+        break;
+    case NRF_TIMER_EVENT_COMPARE1:
+        nrf_gpio_pin_set(RED_LED);
+        break;
+    default:
+        break;
+    }
+}
+
 void nfc_handler(void *context,
                  nfc_t2t_event_t event,
                  const uint8_t *data,
@@ -261,7 +273,7 @@ void main(void)
 
     watchdog_init(wdt_handler);
     saadc_init(saadc_handler);
-    timer_and_ppi_init();
+    timer_and_ppi_init(timer_handler);
     nfc_init(nfc_handler);
     pulse_generator_init();
     ble_init(&bluetooth_handlers);

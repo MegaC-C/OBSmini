@@ -14,14 +14,16 @@ static const nrfx_timer_config_t timer_config = {
 
 static nrf_ppi_channel_t ppi_channel_to_sample_saadc_via_timmer;
 
-void timer_and_ppi_init(void)
+void timer_and_ppi_init(nrfx_timer_event_handler_t timer_event_handler)
 {
+    IRQ_CONNECT(TIMER2_IRQn, IRQ_PRIO_LOWEST, nrfx_timer_2_irq_handler, NULL, 0);
+
     nrfx_err = nrfx_timer_init(&timer_to_sample_saadc_via_ppi_instance,
                                &timer_config,
                                NULL);
     nrfx_err = nrfx_timer_init(&timer_to_measure_ultrasonic_echo_instance,
                                &timer_config,
-                               NULL);
+                               timer_event_handler);
     NRFX_ERR_CHECK(nrfx_err, "timer initialization failed");
 
     nrfx_timer_extended_compare(&timer_to_sample_saadc_via_ppi_instance,
@@ -40,21 +42,32 @@ void timer_and_ppi_init(void)
 
     nrfx_err = nrfx_ppi_channel_enable(ppi_channel_to_sample_saadc_via_timmer);
     NRFX_ERR_CHECK(nrfx_err, " failed");
+
+    nrfx_timer_compare(&timer_to_measure_ultrasonic_echo_instance,
+                       NRF_TIMER_CC_CHANNEL0,
+                       nrfx_timer_us_to_ticks(&timer_to_measure_ultrasonic_echo_instance, 100),
+                       true);
+
+    nrfx_timer_compare(&timer_to_measure_ultrasonic_echo_instance,
+                       NRF_TIMER_CC_CHANNEL1,
+                       nrfx_timer_us_to_ticks(&timer_to_measure_ultrasonic_echo_instance, 1500),
+                       true);
 }
 
 void timer_stop(void)
 {
-    nrfx_timer_disable(&timer_to_measure_ultrasonic_echo_instance);
+    //nrfx_timer_disable(&timer_to_measure_ultrasonic_echo_instance);
     nrfx_timer_disable(&timer_to_sample_saadc_via_ppi_instance);
 }
 
 void timer_start(void)
 {
     nrfx_timer_enable(&timer_to_measure_ultrasonic_echo_instance);
+    nrfx_timer_clear(&timer_to_measure_ultrasonic_echo_instance);
     nrfx_timer_enable(&timer_to_sample_saadc_via_ppi_instance);
 }
 
 uint32_t get_echo_time_us(void)
 {
-    return nrfx_timer_capture(&timer_to_measure_ultrasonic_echo_instance, NRF_TIMER_CC_CHANNEL0);
+    return nrfx_timer_capture(&timer_to_measure_ultrasonic_echo_instance, NRF_TIMER_CC_CHANNEL2);
 }
