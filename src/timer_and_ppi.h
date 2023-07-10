@@ -8,8 +8,14 @@
 #include <zephyr/logging/log.h>
 
 void timer_and_ppi_init(nrfx_timer_event_handler_t timer_event_handler);
-void timer_stop(void);
+
 void timer_start(void);
+void timer_stop(void);
+
+void saadc_sampling_start(void);
+void saadc_sampling_stop(void);
+
 uint32_t get_echo_time_us(void);
+void set_transducer_decay_time_us(uint32_t decay_time);
 
 #endif

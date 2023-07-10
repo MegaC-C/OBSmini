@@ -13,6 +13,22 @@
 #define LEFT_SENSOR   0
 #define RIGHT_SENSOR  1
 
+// this defines the delays after each pulse for changing detection limits
+#define SHORT_DISTANCE_MODE_DELAY_US  2000
+#define MEDIUM_DISTANCE_MODE_DELAY_US 8000
+#define LONG_DISTANCE_MODE_DELAY_US   14000
+
+// this defines the responsiveness towards the received echo signal (maximum = 4096)
+// high values used for noisy short range, lower value for weaker long range signals.
+// TO DO: optimize thresholds
+#define SHORT_DISTANCE_LIMIT_HIGH  3000
+#define MEDIUM_DISTANCE_LIMIT_HIGH 2000
+#define LONG_DISTANCE_LIMIT_HIGH   1000
+
+// this is used to dynamically find the time it takes for the transducer to decay after an pulse and be able to recieve incoming signals 
+// TO DO: not yet implemented!
+#define ULTRASONIC_DECAY_LIMIT_LOW 500
+
 #define SAADC_SAMPLINGRATE_US 5    // sample every 5 µs to get the max possible 200 kHz SAADC
 #define SAADC_BUF_SIZE        4000 // at 200kHz it takes 20ms to fill the 4000 buffer
 #define MAX_MEASUREMENTS      101

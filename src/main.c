@@ -130,40 +130,23 @@ void saadc_handler(nrfx_saadc_evt_t const *p_event)
     switch (p_event->type)
     {
     case NRFX_SAADC_EVT_LIMIT:
-        // here we activate the ECHO_RECEIVE_LIMIT_HIGH only after the signal from the initial ultrasonic pulse (INITIAL_PULSE_LIMIT_LOW) has subsided,
-        // after we received an echo we deactivate ECHO_RECEIVE_LIMIT_HIGH to detect only the first echoed signal
         if (p_event->data.limit.channel == LEFT_SENSOR)
         {
-            if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
-            {
-                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, ECHO_RECEIVE_LIMIT_HIGH);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-            }
-            else if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_HIGH)
-            {
-                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-                ultrasonic_echo_time_left = get_echo_time_us();
-            }
+            nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, INT16_MAX);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            ultrasonic_echo_time_left = get_echo_time_us();
         }
         else if (p_event->data.limit.channel == RIGHT_SENSOR)
         {
-            if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_LOW)
-            {
-                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, ECHO_RECEIVE_LIMIT_HIGH);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-            }
-            else if (p_event->data.limit.limit_type == NRF_SAADC_LIMIT_HIGH)
-            {
-                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-                ultrasonic_echo_time_right = get_echo_time_us();
-            }
+            nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, INT16_MAX);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+            ultrasonic_echo_time_right = get_echo_time_us();
         }
         break;
     case NRFX_SAADC_EVT_DONE:
-        timer_stop(); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
-                      // perhaps because one dimensional buffer was used instead of double buffer?
+        timer_stop();
+        saadc_sampling_stop(); // should be called in NRFX_SAADC_EVT_FINISHED, but that event was never generated,
+                               // perhaps because one dimensional buffer was used instead of double buffer?
         k_event_set(&saadc_done, SAADC_EVENT_DONE);
         break;
     case NRFX_SAADC_EVT_BUF_REQ:
@@ -179,11 +162,37 @@ void timer_handler(nrf_timer_event_t event_type, void *p_context)
 {
     switch (event_type)
     {
-    case NRF_TIMER_EVENT_COMPARE0:
-        nrf_gpio_pin_clear(RED_LED);
-        break;
+        // set the echo signal receive signal limits corresponding to the time after the pulse
+        // but check if a signal was already received to not accidentally detect a later signal
     case NRF_TIMER_EVENT_COMPARE1:
-        nrf_gpio_pin_set(RED_LED);
+        nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, SHORT_DISTANCE_LIMIT_HIGH);
+        NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, SHORT_DISTANCE_LIMIT_HIGH);
+        NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        break;
+    case NRF_TIMER_EVENT_COMPARE2:
+        if (ultrasonic_echo_time_left == UINT16_MAX)
+        {
+            nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, MEDIUM_DISTANCE_LIMIT_HIGH);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        }
+        if (ultrasonic_echo_time_right == UINT16_MAX)
+        {
+            nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, MEDIUM_DISTANCE_LIMIT_HIGH);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        }
+        break;
+    case NRF_TIMER_EVENT_COMPARE3:
+        if (ultrasonic_echo_time_left == UINT16_MAX)
+        {
+            nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INT16_MIN, LONG_DISTANCE_LIMIT_HIGH);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        }
+        if (ultrasonic_echo_time_right == UINT16_MAX)
+        {
+            nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INT16_MIN, LONG_DISTANCE_LIMIT_HIGH);
+            NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
+        }
         break;
     default:
         break;
@@ -317,10 +326,11 @@ void main(void)
                 }
                 burst_ultrasonic_pulse_sequence();
                 timer_start();
+                saadc_sampling_start();
                 k_usleep(100); // short delay needed to let voltage rise before setting INITIAL_PULSE_LIMIT_LOW as limit
-                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
+                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, ULTRASONIC_DECAY_LIMIT_LOW, INT16_MAX);
                 NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, INITIAL_PULSE_LIMIT_LOW, INT16_MAX);
+                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, ULTRASONIC_DECAY_LIMIT_LOW, INT16_MAX);
                 NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
 
                 k_event_clear(&saadc_done, SAADC_EVENT_DONE);
