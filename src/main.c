@@ -122,6 +122,7 @@ void ble_notification_changed_handler(const struct bt_gatt_attr *attr, uint16_t 
     if (ble_notifications_enabled)
     {
         timer_start();
+        saadc_sampling_start();
     }
 }
 
@@ -327,11 +328,6 @@ void main(void)
                 burst_ultrasonic_pulse_sequence();
                 timer_start();
                 saadc_sampling_start();
-                k_usleep(100); // short delay needed to let voltage rise before setting INITIAL_PULSE_LIMIT_LOW as limit
-                nrfx_err = nrfx_saadc_limits_set(LEFT_SENSOR, ULTRASONIC_DECAY_LIMIT_LOW, INT16_MAX);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
-                nrfx_err = nrfx_saadc_limits_set(RIGHT_SENSOR, ULTRASONIC_DECAY_LIMIT_LOW, INT16_MAX);
-                NRFX_ERR_CHECK(nrfx_err, "setting SAADC comperator limits failed");
 
                 k_event_clear(&saadc_done, SAADC_EVENT_DONE);
             }

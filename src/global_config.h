@@ -21,9 +21,9 @@
 // this defines the responsiveness towards the received echo signal (maximum = 4096)
 // high values used for noisy short range, lower value for weaker long range signals.
 // TO DO: optimize thresholds
-#define SHORT_DISTANCE_LIMIT_HIGH  3000
-#define MEDIUM_DISTANCE_LIMIT_HIGH 2000
-#define LONG_DISTANCE_LIMIT_HIGH   1000
+#define SHORT_DISTANCE_LIMIT_HIGH  3500
+#define MEDIUM_DISTANCE_LIMIT_HIGH 3000
+#define LONG_DISTANCE_LIMIT_HIGH   2500
 
 // this is used to dynamically find the time it takes for the transducer to decay after an pulse and be able to recieve incoming signals 
 // TO DO: not yet implemented!
